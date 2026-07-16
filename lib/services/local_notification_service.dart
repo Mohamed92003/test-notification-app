@@ -31,12 +31,15 @@ class LocalNotificationService {
   }
 
   //basic Notification
+  //basic Notification
   static void showBasicNotification(RemoteMessage message) async {
-    final http.Response image = await http.get(
-      Uri.parse(message.notification?.android?.imageUrl ?? ''),
-    );
-    BigPictureStyleInformation bigPictureStyleInformation =
-        BigPictureStyleInformation(
+    final String? imageUrl = message.notification?.android?.imageUrl;
+    StyleInformation? styleInformation;
+
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      try {
+        final http.Response image = await http.get(Uri.parse(imageUrl));
+        styleInformation = BigPictureStyleInformation(
           ByteArrayAndroidBitmap.fromBase64String(
             base64Encode(image.bodyBytes),
           ),
@@ -44,12 +47,18 @@ class LocalNotificationService {
             base64Encode(image.bodyBytes),
           ),
         );
+      } catch (e) {
+        // Image fetch failed - fall back to a plain notification instead of crashing
+        styleInformation = null;
+      }
+    }
+
     AndroidNotificationDetails android = AndroidNotificationDetails(
       'channel_id',
       'channel_name',
       importance: Importance.max,
       priority: Priority.high,
-      styleInformation: bigPictureStyleInformation,
+      styleInformation: styleInformation,
       playSound: true,
       sound: const RawResourceAndroidNotificationSound('fi_confirmation'),
     );

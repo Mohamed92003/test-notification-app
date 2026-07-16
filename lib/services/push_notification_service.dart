@@ -1,7 +1,10 @@
 import 'dart:developer';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 
 import 'local_notification_service.dart';
 
@@ -10,11 +13,24 @@ class PushNotificationsService {
 
   static Future init() async {
     await messaging.requestPermission();
-    String? token=await messaging.getToken();
+    String? token = await messaging.getToken();
     log('token::${token!}');
-    messaging.onTokenRefresh.listen((value) {
-      sendTokenToServer(value);
+
+    // Send the initial token too, not just refreshes
+    await sendTokenToServer(token);
+
+    messaging.onTokenRefresh.listen((newToken) {
+      sendTokenToServer(newToken);
     });
+
+    // Listen for auth state changes to ensure the token is saved once the user logs in
+    FirebaseAuth.instance.authStateChanges().listen((user) async {
+      if (user != null) {
+        String? currentToken = await messaging.getToken();
+        if (currentToken != null) await sendTokenToServer(currentToken);
+      }
+    });
+
     FirebaseMessaging.onBackgroundMessage(handleBackgroundMessage);
     //foreground
     handleForegroundMessage();
@@ -37,23 +53,34 @@ class PushNotificationsService {
     });
   }
 
-  static void sendTokenToServer(String token) {
+  static Future<void> sendTokenToServer(String token) async {
     // option 1 => API
     // option 2 => Firebase
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      log('sendTokenToServer: no logged-in user, skipping');
+      return;
+    }
 
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('fcm_tokens')
+          .doc(token)
+          .set({
+            'token': token,
+            'platform': _platformName(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+      log('FCM token saved to Firestore for user ${user.uid}');
+    } catch (e) {
+      log('sendTokenToServer error: $e');
+    }
+  }
+
+  static String _platformName() {
+    // Optional metadata to help you tell devices apart server-side
+    return defaultTargetPlatform.toString();
   }
 }
-
-/*
-  1.Permissions [done]
-  2.fcm token [done]
-  3.test using token with Firebase [done]
-  4.fire notification [background] [done]
-  5.fire notification [killed] [done]
-  6.fire notification [foreground] [done]
-  7.test using token with Postman [done]
-  8.send Image with notification [done]
-  9.send notification with custom sound [done]
-  10.send token to server [done]
-  11.topic [done]
- */
